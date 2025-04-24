@@ -1,14 +1,16 @@
 # Dependencies
-/node_modules
-/.pnp
-.pnp.js
+node_modules/
 
 # Testing
-/coverage
+coverage/
 
 # Production
-/build
-/dist
+build/
+dist/
+frontend/build/
+frontend/dist/
+backend/build/
+backend/dist/
 
 # Environment variables
 .env
@@ -20,7 +22,9 @@
 # Logs
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-debug.log*
 
 # IDE
 .idea/
