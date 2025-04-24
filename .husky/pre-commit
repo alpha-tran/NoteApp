@@ -1,0 +1,18 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "Running pre-commit checks..."
+
+# Run linting
+npm run lint
+
+# Run tests
+npm test
+
+# Check for secrets
+if [ -f "node_modules/.bin/gitleaks" ]; then
+  ./node_modules/.bin/gitleaks detect --source=. --verbose
+fi
+
+# Format code
+npm run format 
