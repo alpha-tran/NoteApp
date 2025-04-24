@@ -1,0 +1,32 @@
+version: 2
+checks:
+  security:
+    enabled: true
+    rules:
+      - OWASP Top 10
+      - Security Hotspots
+      - Hardcoded Secrets
+      - SQL Injection
+      - XSS
+      - JWT Issues
+  quality:
+    enabled: true
+    rules:
+      - Code Smell
+      - Complexity
+      - Duplication
+      - Unused Code
+      - Code Style
+  coverage:
+    enabled: true
+    threshold: 80
+    rules:
+      - Line Coverage
+      - Branch Coverage
+  maintainability:
+    enabled: true
+    rules:
+      - Code Complexity
+      - File Length
+      - Function Length
+      - Cognitive Complexity 
