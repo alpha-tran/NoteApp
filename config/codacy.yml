@@ -1,4 +1,8 @@
 version: 2
+exclude_paths:
+  - 'frontend/package-lock.json'
+  - 'backend/package-lock.json'
+
 checks:
   security:
     enabled: true
