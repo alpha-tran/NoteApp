@@ -5,63 +5,121 @@ pipeline {
         DOCKER_IMAGE = 'noteapp'
         DOCKER_TAG = "${BUILD_NUMBER}"
         CODACY_PROJECT_TOKEN = credentials('codacy-project-token')
+        DOCKER_REGISTRY = 'your-docker-registry'
+        DOCKER_CREDENTIALS_ID = 'your-docker-credentials-id'
+        KUBECONFIG_CREDENTIALS_ID = 'your-kubeconfig-credentials-id'
     }
     
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                git branch: 'feature', url: 'https://github.com/alpha-tran/NoteApp.git'
             }
         }
         
-        stage('Install Dependencies') {
-            steps {
-                sh 'pip install -r requirements.txt'
-                sh 'pip install coverage codacy-coverage'
-            }
-        }
-        
-        stage('Run Tests with Coverage') {
-            steps {
-                sh 'coverage run -m pytest'
-                sh 'coverage xml'
-            }
-        }
-        
-        stage('Upload Coverage to Codacy') {
-            steps {
-                sh 'python-codacy-coverage -r coverage.xml'
-            }
-        }
-        
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
+        stage('Setup Environment') {
+            parallel {
+                stage('Setup Frontend') {
+                    steps {
+                        dir('frontend') {
+                            sh 'npm install'
+                        }
+                    }
+                }
+                stage('Setup Backend') {
+                    steps {
+                        dir('backend') {
+                            sh 'pip install -r requirements.txt'
+                        }
+                    }
                 }
             }
         }
         
-        stage('Security Scan') {
+        stage('Testing') {
+            parallel {
+                stage('Test Frontend') {
+                    steps {
+                        dir('frontend') {
+                            sh 'npm test -- --watchAll=false'
+                        }
+                    }
+                }
+                stage('Test Backend') {
+                    steps {
+                        dir('backend') {
+                            sh 'pytest'
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Codacy Security Scan') {
+            steps {
+                echo "Codacy analysis will run automatically on commit/PR or via CLI/plugin"
+            }
+        }
+        
+        stage('Build Docker Images') {
+            parallel {
+                stage('Build Frontend') {
+                    steps {
+                        dir('frontend') {
+                            script {
+                                def imageName = "${env.DOCKER_REGISTRY}/noteapp-frontend:${env.BUILD_NUMBER}"
+                                sh "docker build -t ${imageName} ."
+                            }
+                        }
+                    }
+                }
+                stage('Build Backend') {
+                    steps {
+                        dir('backend') {
+                            script {
+                                def imageName = "${env.DOCKER_REGISTRY}/noteapp-backend:${env.BUILD_NUMBER}"
+                                sh "docker build -t ${imageName} ."
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Push Docker Images') {
             steps {
                 script {
-                    // Run Codacy analysis
-                    sh 'curl -fsSL https://coverage.codacy.com/get.sh | bash -s -- report -r coverage.xml'
+                    withCredentials([string(credentialsId: env.DOCKER_CREDENTIALS_ID, variable: 'DOCKER_PASSWORD')]) {
+                        sh "echo $DOCKER_PASSWORD | docker login -u ${env.DOCKER_REGISTRY} --password-stdin"
+                        sh "docker push ${env.DOCKER_REGISTRY}/noteapp-frontend:${env.BUILD_NUMBER}"
+                        sh "docker push ${env.DOCKER_REGISTRY}/noteapp-backend:${env.BUILD_NUMBER}"
+                    }
                 }
+            }
+        }
+        
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG')]) {
+                    sh '''
+                        echo "Applying Kubernetes manifests..."
+                        kubectl apply -f k8s/
+                    '''
+                }
+                echo "Deployment to Kubernetes (local) initiated."
             }
         }
     }
     
     post {
         always {
-            // Clean up
-            cleanWs()
+            echo 'Pipeline finished.'
         }
         success {
-            echo 'Pipeline completed successfully!'
+            echo 'Pipeline succeeded!'
         }
         failure {
-            echo 'Pipeline failed!'
+            echo 'Pipeline failed.'
         }
     }
 } 

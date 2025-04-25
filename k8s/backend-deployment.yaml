@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+  labels:
+    app: backend
+spec:
+  replicas: 2 # Start with 2 replicas
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      volumes:
+        - name: backend-db-volume
+          emptyDir: {} # Hoặc persistentVolumeClaim nếu cần lưu trữ lâu dài
+      containers:
+      - name: backend
+        image: your-docker-registry/noteapp-backend:latest # Image sẽ được cập nhật bởi Jenkins
+        ports:
+        - containerPort: 8000
+        env:
+          - name: DATABASE_URL
+            value: "sqlite:////app/data/app.db" # Đường dẫn trong container
+          # Thêm các biến môi trường khác nếu cần (e.g., JWT_SECRET_KEY)
+          # - name: JWT_SECRET_KEY
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: backend-secrets
+          #       key: jwt-secret
+        volumeMounts:
+          - name: backend-db-volume
+            mountPath: /app/data # Gắn volume vào thư mục chứa DB
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000 # Match user ID in Dockerfile
+          allowPrivilegeEscalation: false
+          # readOnlyRootFilesystem: false # Cannot be true due to SQLite writing to /app/data 
