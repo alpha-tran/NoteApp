@@ -8,12 +8,6 @@ pipeline {
         DOCKER_REGISTRY = credentials('docker-registry-url')
         DOCKER_CREDENTIALS_ID = credentials('docker-credentials-id')
         KUBECONFIG_CREDENTIALS_ID = credentials('kubeconfig-credentials-id')
-        // Determine OS-specific commands
-        IS_WINDOWS = isUnix() ? 'false' : 'true'
-        PIP_CMD = isUnix() ? 'pip3' : 'python -m pip'
-        VENV_CMD = isUnix() ? 'python3 -m venv' : 'python -m venv'
-        ACTIVATE_CMD = isUnix() ? 'source venv/bin/activate' : '.\\venv\\Scripts\\activate'
-        // Environment variables for application
         NODE_ENV = 'production'
         ENVIRONMENT = 'production'
     }
@@ -30,9 +24,13 @@ pipeline {
                         
                         // Check for required tools
                         bat '''
+                            echo Checking Python version...
                             python --version
+                            echo Checking Docker version...
                             docker --version
+                            echo Checking kubectl version...
                             kubectl version --client
+                            echo Checking npm version...
                             npm --version
                         '''
                     } catch (Exception e) {
@@ -44,7 +42,7 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/alpha-tran/NoteApp.git'
+                checkout scm
             }
         }
         
@@ -53,9 +51,10 @@ pipeline {
                 script {
                     try {
                         bat '''
+                            echo Creating Python virtual environment...
                             if exist venv rmdir /s /q venv
                             python -m venv venv
-                            call venv\\Scripts\\activate
+                            call venv\\Scripts\\activate.bat
                             python -m pip install --upgrade pip setuptools wheel
                         '''
                     } catch (Exception e) {
@@ -69,17 +68,21 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Install and run security scanning tools
                         bat '''
-                            call venv\\Scripts\\activate
+                            call venv\\Scripts\\activate.bat
+                            echo Installing security tools...
                             pip install bandit safety
+                            echo Running Bandit security scan...
                             bandit -r backend/app -f json -o bandit-results.json
+                            echo Running Safety check...
                             safety check -r backend/requirements.txt --json > safety-results.json
                         '''
                         
-                        // Run npm audit for frontend
                         dir('frontend') {
-                            bat 'npm audit --json > npm-audit.json'
+                            bat '''
+                                echo Running npm audit...
+                                npm audit --json > npm-audit.json
+                            '''
                         }
                     } catch (Exception e) {
                         error "Security scan failed: ${e.getMessage()}"
@@ -93,11 +96,12 @@ pipeline {
                 script {
                     dir('backend') {
                         bat '''
+                            echo Setting up backend environment...
                             IF NOT EXIST venv (
                                 python -m venv venv
                             )
                             call venv\\Scripts\\activate.bat
-                            echo "Installing dependencies..."
+                            echo Installing backend dependencies...
                             python -m pip install --upgrade pip
                             pip install -r requirements.txt --no-cache-dir
                             pip install pytest pytest-cov --no-cache-dir
@@ -110,8 +114,12 @@ pipeline {
         stage('Build Frontend') {
             steps {
                 dir('frontend') {
-                    bat 'npm install'
-                    bat 'npm run build'
+                    bat '''
+                        echo Installing frontend dependencies...
+                        npm install
+                        echo Building frontend...
+                        npm run build
+                    '''
                 }
             }
         }
@@ -122,7 +130,8 @@ pipeline {
                     try {
                         dir('backend') {
                             bat '''
-                                call ..\\venv\\Scripts\\activate
+                                echo Running backend tests...
+                                call venv\\Scripts\\activate.bat
                                 python -m pytest tests/ --cov=app --cov-report=xml --junitxml=test-results.xml
                             '''
                         }
@@ -138,7 +147,10 @@ pipeline {
                 script {
                     try {
                         dir('frontend') {
-                            bat 'npm test -- --watchAll=false --ci --coverage --reporters=default --reporters=jest-junit'
+                            bat '''
+                                echo Running frontend tests...
+                                npm test -- --watchAll=false --ci --coverage --reporters=default --reporters=jest-junit
+                            '''
                         }
                     } catch (Exception e) {
                         error "Failed to test frontend: ${e.getMessage()}"
@@ -151,9 +163,9 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Run Codacy analysis
                         bat '''
-                            call venv\\Scripts\\activate
+                            echo Running Codacy analysis...
+                            call venv\\Scripts\\activate.bat
                             pip install codacy-coverage
                             python-codacy-coverage -r backend/coverage.xml
                             npx codacy-coverage < frontend/coverage/lcov.info
@@ -167,15 +179,21 @@ pipeline {
         
         stage('Docker Build') {
             steps {
-                bat 'docker build -t alpha-tran/noteapp-backend:latest .\\backend'
-                bat 'docker build -t alpha-tran/noteapp-frontend:latest .\\frontend'
+                bat '''
+                    echo Building Docker images...
+                    docker build -t alpha-tran/noteapp-backend:latest .\\backend
+                    docker build -t alpha-tran/noteapp-frontend:latest .\\frontend
+                '''
             }
         }
         
         stage('Deploy to K8s') {
             steps {
-                bat 'kubectl apply -f k8s\\backend-deployment.yaml'
-                bat 'kubectl apply -f k8s\\frontend-deployment.yaml'
+                bat '''
+                    echo Deploying to Kubernetes...
+                    kubectl apply -f k8s\\backend-deployment.yaml
+                    kubectl apply -f k8s\\frontend-deployment.yaml
+                '''
             }
         }
     }
@@ -184,7 +202,6 @@ pipeline {
         success {
             script {
                 currentBuild.description = "Build and deployment successful"
-                // Send success notification
                 emailext (
                     subject: "Pipeline '${currentBuild.fullDisplayName}' SUCCESSFUL",
                     body: "Build completed successfully\n\nCheck console output at ${BUILD_URL}",
@@ -195,7 +212,6 @@ pipeline {
         failure {
             script {
                 currentBuild.description = "Build failed: ${currentBuild.description}"
-                // Send failure notification
                 emailext (
                     subject: "Pipeline '${currentBuild.fullDisplayName}' FAILED",
                     body: "Build failed\n\nCheck console output at ${BUILD_URL}",
@@ -205,9 +221,9 @@ pipeline {
         }
         always {
             script {
-                // Cleanup
                 try {
                     bat '''
+                        echo Cleaning up...
                         if exist venv rmdir /s /q venv
                         docker system prune -f
                     '''
@@ -215,7 +231,6 @@ pipeline {
                     echo "Warning: Cleanup failed: ${e.getMessage()}"
                 }
                 
-                // Archive test results and artifacts
                 archiveArtifacts artifacts: '''
                     **/test-results.xml,
                     **/coverage.xml,
