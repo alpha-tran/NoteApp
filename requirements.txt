@@ -1,8 +1,6 @@
 # Core dependencies
 fastapi>=0.100.0
 uvicorn>=0.22.0
-python-jose>=3.4.0  # Fixed version for security
-python-multipart>=0.0.7  # Fixed version for security
 pydantic>=2.0.0
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.6
