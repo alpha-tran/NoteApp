@@ -25,14 +25,33 @@ jobs:
           
       - name: Run Security Scan
         run: |
-          bandit -r . -f json -o security-report.json
-          safety check
+          set -e  # Exit on error
+          echo "Running Bandit security scan..."
+          bandit -r . -f json -o security-report.json || true
+          echo "Running Safety check..."
+          safety check --json > safety-report.json || true
           
-      - name: Upload security report
-        uses: actions/upload-artifact@v3
+          # Verify reports exist
+          if [ ! -f security-report.json ] || [ ! -f safety-report.json ]; then
+            echo "Error: Security reports not generated!"
+            exit 1
+          fi
+          
+          # Combine reports
+          echo "{\"bandit\": $(cat security-report.json), \"safety\": $(cat safety-report.json)}" > combined-security-report.json
+          
+      - name: List files (Debug)
+        run: ls -la *.json
+          
+      - name: Upload security reports
+        uses: actions/upload-artifact@v3.1.3
         with:
-          name: security-report
-          path: security-report.json
+          name: security-reports
+          path: |
+            security-report.json
+            safety-report.json
+            combined-security-report.json
+          if-no-files-found: error
 
   test:
     needs: security-scan
