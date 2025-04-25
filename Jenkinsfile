@@ -13,7 +13,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'feature', url: 'https://github.com/alpha-tran/NoteApp.git'
+                git branch: 'main', url: 'https://github.com/alpha-tran/NoteApp.git'
             }
         }
         
