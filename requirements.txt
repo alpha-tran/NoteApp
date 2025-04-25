@@ -1,0 +1,24 @@
+# Core dependencies
+fastapi>=0.100.0
+uvicorn>=0.22.0
+python-jose>=3.4.0  # Fixed version for security
+python-multipart>=0.0.7  # Fixed version for security
+pydantic>=2.0.0
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.6
+alembic>=1.11.1
+
+# Security
+python-jose[cryptography]>=3.4.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.7
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+httpx>=0.24.1
+
+# Development
+black>=23.3.0
+flake8>=6.0.0
+isort>=5.12.0 
