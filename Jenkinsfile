@@ -22,14 +22,14 @@ pipeline {
                 stage('Setup Frontend') {
                     steps {
                         dir('frontend') {
-                            sh 'npm install'
+                            bat 'npm install'
                         }
                     }
                 }
                 stage('Setup Backend') {
                     steps {
                         dir('backend') {
-                            sh 'pip install -r requirements.txt'
+                            bat 'pip install -r requirements.txt'
                         }
                     }
                 }
@@ -41,14 +41,14 @@ pipeline {
                 stage('Test Frontend') {
                     steps {
                         dir('frontend') {
-                            sh 'npm test -- --watchAll=false'
+                            bat 'npm test -- --watchAll=false'
                         }
                     }
                 }
                 stage('Test Backend') {
                     steps {
                         dir('backend') {
-                            sh 'pytest'
+                            bat 'pytest'
                         }
                     }
                 }
@@ -68,7 +68,7 @@ pipeline {
                         dir('frontend') {
                             script {
                                 def imageName = "${env.DOCKER_REGISTRY}/noteapp-frontend:${env.BUILD_NUMBER}"
-                                sh "docker build -t ${imageName} ."
+                                bat "docker build -t ${imageName} ."
                             }
                         }
                     }
@@ -78,7 +78,7 @@ pipeline {
                         dir('backend') {
                             script {
                                 def imageName = "${env.DOCKER_REGISTRY}/noteapp-backend:${env.BUILD_NUMBER}"
-                                sh "docker build -t ${imageName} ."
+                                bat "docker build -t ${imageName} ."
                             }
                         }
                     }
@@ -90,9 +90,9 @@ pipeline {
             steps {
                 script {
                     withCredentials([string(credentialsId: env.DOCKER_CREDENTIALS_ID, variable: 'DOCKER_PASSWORD')]) {
-                        sh "echo $DOCKER_PASSWORD | docker login -u ${env.DOCKER_REGISTRY} --password-stdin"
-                        sh "docker push ${env.DOCKER_REGISTRY}/noteapp-frontend:${env.BUILD_NUMBER}"
-                        sh "docker push ${env.DOCKER_REGISTRY}/noteapp-backend:${env.BUILD_NUMBER}"
+                        bat "echo %DOCKER_PASSWORD% | docker login -u ${env.DOCKER_REGISTRY} --password-stdin"
+                        bat "docker push ${env.DOCKER_REGISTRY}/noteapp-frontend:${env.BUILD_NUMBER}"
+                        bat "docker push ${env.DOCKER_REGISTRY}/noteapp-backend:${env.BUILD_NUMBER}"
                     }
                 }
             }
@@ -101,7 +101,7 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG')]) {
-                    sh '''
+                    bat '''
                         echo "Applying Kubernetes manifests..."
                         kubectl apply -f k8s/
                     '''
