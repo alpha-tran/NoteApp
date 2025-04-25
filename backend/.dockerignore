@@ -1,0 +1,45 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Unit test / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+coverage.xml
+*.cover
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Development
+.git
+.gitignore
+.github
+.vscode
+.idea
+*.md
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# Misc
+.DS_Store
+*.swp
+*.bak
+*.tmp 
