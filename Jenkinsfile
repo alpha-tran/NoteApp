@@ -5,24 +5,52 @@ pipeline {
         DOCKER_IMAGE = 'noteapp'
         DOCKER_TAG = "${BUILD_NUMBER}"
         CODACY_PROJECT_TOKEN = credentials('codacy-project-token')
-        DOCKER_REGISTRY = 'your-docker-registry'
-        DOCKER_CREDENTIALS_ID = 'your-docker-credentials-id'
-        KUBECONFIG_CREDENTIALS_ID = 'your-kubeconfig-credentials-id'
+        DOCKER_REGISTRY = credentials('docker-registry-url')
+        DOCKER_CREDENTIALS_ID = credentials('docker-credentials-id')
+        KUBECONFIG_CREDENTIALS_ID = credentials('kubeconfig-credentials-id')
         // Determine OS-specific commands
         IS_WINDOWS = isUnix() ? 'false' : 'true'
         PIP_CMD = isUnix() ? 'pip3' : 'python -m pip'
         VENV_CMD = isUnix() ? 'python3 -m venv' : 'python -m venv'
         ACTIVATE_CMD = isUnix() ? 'source venv/bin/activate' : '.\\venv\\Scripts\\activate'
+        // Environment variables for application
+        NODE_ENV = 'production'
+        ENVIRONMENT = 'production'
     }
     
     stages {
+        stage('Environment Validation') {
+            steps {
+                script {
+                    try {
+                        // Validate required credentials
+                        if (!DOCKER_REGISTRY || !DOCKER_CREDENTIALS_ID || !KUBECONFIG_CREDENTIALS_ID) {
+                            error "Missing required credentials"
+                        }
+                        
+                        // Check for required tools
+                        bat '''
+                            python --version
+                            docker --version
+                            kubectl version --client
+                            npm --version
+                        '''
+                    } catch (Exception e) {
+                        error "Environment validation failed: ${e.getMessage()}"
+                    }
+                }
+            }
+        }
+
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/alpha-tran/NoteApp.git'
                 script {
-                    // Ensure correct line endings on Windows
-                    if (IS_WINDOWS == 'true') {
+                    try {
+                        checkout scm
+                        // Ensure correct line endings on Windows
                         bat 'git config --global core.autocrlf true'
+                    } catch (Exception e) {
+                        error "Checkout failed: ${e.getMessage()}"
                     }
                 }
             }
@@ -32,19 +60,37 @@ pipeline {
             steps {
                 script {
                     try {
-                        if (IS_WINDOWS == 'true') {
-                            bat 'python -V'
-                            bat 'if exist venv rmdir /s /q venv'
-                            bat 'python -m venv venv'
-                            bat '.\\venv\\Scripts\\activate && python -m pip install --upgrade pip setuptools wheel'
-                        } else {
-                            sh 'python3 -V'
-                            sh 'rm -rf venv'
-                            sh 'python3 -m venv venv'
-                            sh '. venv/bin/activate && pip3 install --upgrade pip setuptools wheel'
-                        }
+                        bat '''
+                            if exist venv rmdir /s /q venv
+                            python -m venv venv
+                            call venv\\Scripts\\activate
+                            python -m pip install --upgrade pip setuptools wheel
+                        '''
                     } catch (Exception e) {
                         error "Failed to setup Python environment: ${e.getMessage()}"
+                    }
+                }
+            }
+        }
+
+        stage('Security Scan') {
+            steps {
+                script {
+                    try {
+                        // Install and run security scanning tools
+                        bat '''
+                            call venv\\Scripts\\activate
+                            pip install bandit safety
+                            bandit -r backend/app -f json -o bandit-results.json
+                            safety check -r backend/requirements.txt --json > safety-results.json
+                        '''
+                        
+                        // Run npm audit for frontend
+                        dir('frontend') {
+                            bat 'npm audit --json > npm-audit.json'
+                        }
+                    } catch (Exception e) {
+                        error "Security scan failed: ${e.getMessage()}"
                     }
                 }
             }
@@ -55,21 +101,12 @@ pipeline {
                 script {
                     try {
                         dir('backend') {
-                            if (IS_WINDOWS == 'true') {
-                                bat '''
-                                    call ..\\venv\\Scripts\\activate
-                                    echo "Installing dependencies..."
-                                    python -m pip install -r requirements.txt --no-cache-dir
-                                    python -m pip install pytest pytest-cov --no-cache-dir
-                                '''
-                            } else {
-                                sh '''
-                                    . ../venv/bin/activate
-                                    echo "Installing dependencies..."
-                                    pip3 install -r requirements.txt --no-cache-dir
-                                    pip3 install pytest pytest-cov --no-cache-dir
-                                '''
-                            }
+                            bat '''
+                                call ..\\venv\\Scripts\\activate
+                                echo "Installing dependencies..."
+                                python -m pip install -r requirements.txt --no-cache-dir
+                                python -m pip install pytest pytest-cov --no-cache-dir
+                            '''
                         }
                     } catch (Exception e) {
                         error "Failed to build backend: ${e.getMessage()}"
@@ -83,13 +120,10 @@ pipeline {
                 script {
                     try {
                         dir('frontend') {
-                            if (IS_WINDOWS == 'true') {
-                                bat 'npm install'
-                                bat 'npm run build'
-                            } else {
-                                sh 'npm install'
-                                sh 'npm run build'
-                            }
+                            bat '''
+                                call npm ci
+                                call npm run build
+                            '''
                         }
                     } catch (Exception e) {
                         error "Failed to build frontend: ${e.getMessage()}"
@@ -103,17 +137,10 @@ pipeline {
                 script {
                     try {
                         dir('backend') {
-                            if (IS_WINDOWS == 'true') {
-                                bat '''
-                                    call ..\\venv\\Scripts\\activate
-                                    python -m pytest tests/ --cov=app --cov-report=xml
-                                '''
-                            } else {
-                                sh '''
-                                    . ../venv/bin/activate
-                                    python -m pytest tests/ --cov=app --cov-report=xml
-                                '''
-                            }
+                            bat '''
+                                call ..\\venv\\Scripts\\activate
+                                python -m pytest tests/ --cov=app --cov-report=xml --junitxml=test-results.xml
+                            '''
                         }
                     } catch (Exception e) {
                         error "Failed to test backend: ${e.getMessage()}"
@@ -127,11 +154,7 @@ pipeline {
                 script {
                     try {
                         dir('frontend') {
-                            if (IS_WINDOWS == 'true') {
-                                bat 'npm test -- --watchAll=false'
-                            } else {
-                                sh 'npm test -- --watchAll=false'
-                            }
+                            bat 'npm test -- --watchAll=false --ci --coverage --reporters=default --reporters=jest-junit'
                         }
                     } catch (Exception e) {
                         error "Failed to test frontend: ${e.getMessage()}"
@@ -139,20 +162,43 @@ pipeline {
                 }
             }
         }
-        
-        stage('Docker Build') {
+
+        stage('Code Quality Analysis') {
             steps {
                 script {
                     try {
-                        if (IS_WINDOWS == 'true') {
-                            bat "docker build -t ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER} ./frontend"
-                            bat "docker build -t ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER} ./backend"
-                        } else {
-                            sh "docker build -t ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER} ./frontend"
-                            sh "docker build -t ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER} ./backend"
-                        }
+                        // Run Codacy analysis
+                        bat '''
+                            call venv\\Scripts\\activate
+                            pip install codacy-coverage
+                            python-codacy-coverage -r backend/coverage.xml
+                            npx codacy-coverage < frontend/coverage/lcov.info
+                        '''
                     } catch (Exception e) {
-                        error "Failed to build Docker images: ${e.getMessage()}"
+                        error "Code quality analysis failed: ${e.getMessage()}"
+                    }
+                }
+            }
+        }
+        
+        stage('Docker Build and Push') {
+            steps {
+                script {
+                    try {
+                        // Login to Docker registry
+                        withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                            bat "docker login ${DOCKER_REGISTRY} -u ${DOCKER_USER} -p ${DOCKER_PASS}"
+                        }
+                        
+                        // Build and push images
+                        bat """
+                            docker build -t ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER} --build-arg NODE_ENV=${NODE_ENV} ./frontend
+                            docker build -t ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER} --build-arg ENVIRONMENT=${ENVIRONMENT} ./backend
+                            docker push ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER}
+                            docker push ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER}
+                        """
+                    } catch (Exception e) {
+                        error "Docker build and push failed: ${e.getMessage()}"
                     }
                 }
             }
@@ -162,10 +208,16 @@ pipeline {
             steps {
                 script {
                     try {
-                        if (IS_WINDOWS == 'true') {
-                            bat 'kubectl apply -f k8s/'
-                        } else {
-                            sh 'kubectl apply -f k8s/'
+                        // Configure kubectl
+                        withKubeConfig([credentialsId: KUBECONFIG_CREDENTIALS_ID]) {
+                            // Update deployment manifests with new image tags
+                            bat """
+                                powershell -Command "(gc k8s/frontend-deployment.yaml) -replace 'image: .*frontend:.*', 'image: ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER}' | Set-Content k8s/frontend-deployment.yaml"
+                                powershell -Command "(gc k8s/backend-deployment.yaml) -replace 'image: .*backend:.*', 'image: ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER}' | Set-Content k8s/backend-deployment.yaml"
+                                kubectl apply -f k8s/
+                                kubectl rollout status deployment/frontend
+                                kubectl rollout status deployment/backend
+                            """
                         }
                     } catch (Exception e) {
                         error "Failed to deploy to K8s: ${e.getMessage()}"
@@ -177,23 +229,48 @@ pipeline {
     
     post {
         success {
-            echo 'Pipeline executed successfully!'
+            script {
+                currentBuild.description = "Build and deployment successful"
+                // Send success notification
+                emailext (
+                    subject: "Pipeline '${currentBuild.fullDisplayName}' SUCCESSFUL",
+                    body: "Build completed successfully\n\nCheck console output at ${BUILD_URL}",
+                    recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+                )
+            }
         }
         failure {
-            echo 'Pipeline execution failed!'
+            script {
+                currentBuild.description = "Build failed: ${currentBuild.description}"
+                // Send failure notification
+                emailext (
+                    subject: "Pipeline '${currentBuild.fullDisplayName}' FAILED",
+                    body: "Build failed\n\nCheck console output at ${BUILD_URL}",
+                    recipientProviders: [[$class: 'DevelopersRecipientProvider']]
+                )
+            }
         }
         always {
             script {
                 // Cleanup
                 try {
-                    if (IS_WINDOWS == 'true') {
-                        bat 'if exist venv rmdir /s /q venv'
-                    } else {
-                        sh 'rm -rf venv'
-                    }
+                    bat '''
+                        if exist venv rmdir /s /q venv
+                        docker system prune -f
+                    '''
                 } catch (Exception e) {
                     echo "Warning: Cleanup failed: ${e.getMessage()}"
                 }
+                
+                // Archive test results and artifacts
+                archiveArtifacts artifacts: '''
+                    **/test-results.xml,
+                    **/coverage.xml,
+                    **/bandit-results.json,
+                    **/safety-results.json,
+                    **/npm-audit.json
+                ''', allowEmptyArchive: true
+                junit '**/test-results.xml'
             }
         }
     }

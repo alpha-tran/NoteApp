@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: your-docker-registry/noteapp-frontend:latest # Image sẽ được cập nhật bởi Jenkins
+        image: your-docker-registry/frontend:latest
         ports:
         - containerPort: 80
         resources:

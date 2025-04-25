@@ -1,4 +1,4 @@
-FROM node:18-alpine AS build
+FROM node:18.19.1-alpine3.19 AS build
 
 # Set working directory
 WORKDIR /app
@@ -14,7 +14,7 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM nginx:stable-alpine
+FROM nginx:1.25.4-alpine3.18-slim
 
 # Create non-root user
 RUN adduser -D -H -u 1000 -s /sbin/nologin nginxuser

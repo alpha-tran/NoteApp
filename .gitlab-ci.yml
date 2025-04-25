@@ -11,16 +11,25 @@ variables:
   BACKEND_IMAGE: ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_SHORT_SHA}
 
 default:
-  image: docker:20.10.16
+  image: docker:24.0.7
   services:
-    - docker:20.10.16-dind
+    - docker:24.0.7-dind
   tags:
     - docker
+
+cache:
+  paths:
+    - frontend/node_modules/
+    - backend/.venv/
+    - ~/.cache/pip
 
 # Setup Stage
 setup_backend:
   stage: setup
   image: python:3.9-slim
+  before_script:
+    - python -m venv backend/.venv
+    - source backend/.venv/bin/activate
   script:
     - cd backend
     - pip install -r requirements.txt
@@ -34,7 +43,7 @@ setup_frontend:
   image: node:16-alpine
   script:
     - cd frontend
-    - npm install
+    - npm ci
   artifacts:
     paths:
       - frontend/

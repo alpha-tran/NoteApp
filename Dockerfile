@@ -1,5 +1,5 @@
 # Use multi-stage build
-FROM python:3.9-slim-buster as builder
+FROM python:3.9.18-slim-buster AS builder
 
 # Set working directory
 WORKDIR /app
@@ -14,7 +14,7 @@ COPY requirements.txt .
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
 
 # Final stage
-FROM python:3.9-slim-buster
+FROM python:3.9.18-slim-buster
 
 # Create non-root user
 RUN useradd -m appuser
