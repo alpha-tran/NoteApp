@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, AuthState, LoginCredentials, RegisterData, AuthResponse } from '../types';
+import { AuthState, LoginCredentials, RegisterData } from '../types';
 import { authService } from '../services/api';
 
 interface AuthContextType extends AuthState {
@@ -72,7 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const register = async (data: RegisterData) => {
         try {
-            const user = await authService.register(data);
+            await authService.register(data);
             setState(prev => ({
                 ...prev,
                 error: null,
