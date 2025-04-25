@@ -14,18 +14,6 @@ class UserOut(BaseModel):
     class Config:
         orm_mode = True
 
-class TodoCreate(BaseModel):
-    title: str
-    description: Optional[str] = None
-    completed: bool = False
-
-class TodoOut(TodoCreate):
-    id: int
-    owner_id: int
-
-    class Config:
-        orm_mode = True
-
 class LoginCredentials(BaseModel):
     username: str
     password: str

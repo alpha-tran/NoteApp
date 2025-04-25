@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
+from fastapi.security import OAuth2PasswordRequestForm
 from app.database import get_db
-from app.models.user import User, Todo
-from app.schemas.user import UserCreate, UserOut, LoginCredentials, AuthResponse, TodoCreate, TodoOut
+from app.models.user import User
+from app.schemas.user import UserCreate, UserOut, AuthResponse
 from app.security import get_password_hash, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user
 from datetime import timedelta
-from typing import List
 
 router = APIRouter()
 
@@ -22,9 +22,22 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     return db_user
 
 @router.post("/login", response_model=AuthResponse)
-def login(credentials: LoginCredentials, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == credentials.username).first()
-    if not user or not verify_password(credentials.password, user.hashed_password):
+async def login(request: Request, db: Session = Depends(get_db)):
+    # Try parsing JSON body first, then fallback to form data
+    try:
+        data = await request.json()
+    except Exception:
+        form = await request.form()
+        data = {**form}
+    username = data.get("username")
+    password = data.get("password")
+    if not username or not password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username and password required",
+        )
+    user = db.query(User).filter(User.email == username).first()
+    if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -32,7 +45,7 @@ def login(credentials: LoginCredentials, db: Session = Depends(get_db)):
         )
     access_token = create_access_token(
         data={"sub": user.email},
-        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -43,15 +56,3 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
 @router.post("/logout")
 async def logout(current_user: User = Depends(get_current_user)):
     return {"message": "Successfully logged out"}
-
-@router.get("/todos", response_model=List[TodoOut])
-def get_todos(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.query(Todo).filter(Todo.owner_id == current_user.id).all()
-
-@router.post("/todos", response_model=TodoOut)
-def create_todo(todo: TodoCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    db_todo = Todo(**todo.dict(), owner_id=current_user.id)
-    db.add(db_todo)
-    db.commit()
-    db.refresh(db_todo)
-    return db_todo
