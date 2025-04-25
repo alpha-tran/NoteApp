@@ -1,72 +1,67 @@
 pipeline {
     agent any
-
+    
     environment {
-        DOCKER_IMAGE = 'user-auth-app'
-        DOCKER_TAG = "${env.BUILD_NUMBER}"
+        DOCKER_IMAGE = 'noteapp'
+        DOCKER_TAG = "${BUILD_NUMBER}"
+        CODACY_PROJECT_TOKEN = credentials('codacy-project-token')
     }
-
+    
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
-
+        
         stage('Install Dependencies') {
             steps {
-                sh 'pip install -r backend/requirements.txt'
+                sh 'pip install -r requirements.txt'
+                sh 'pip install coverage codacy-coverage'
             }
         }
-
-        stage('Run Tests') {
+        
+        stage('Run Tests with Coverage') {
             steps {
-                sh 'cd backend && pytest tests/'
+                sh 'coverage run -m pytest'
+                sh 'coverage xml'
             }
         }
-
+        
+        stage('Upload Coverage to Codacy') {
+            steps {
+                sh 'python-codacy-coverage -r coverage.xml'
+            }
+        }
+        
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .'
+                script {
+                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
+                }
             }
         }
-
+        
         stage('Security Scan') {
             steps {
-                sh 'docker scan ${DOCKER_IMAGE}:${DOCKER_TAG}'
-            }
-        }
-
-        stage('Deploy to Staging') {
-            when {
-                branch 'staging'
-            }
-            steps {
-                sh 'docker push ${DOCKER_IMAGE}:${DOCKER_TAG}'
-                // Add deployment steps for staging environment
-            }
-        }
-
-        stage('Deploy to Production') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh 'docker push ${DOCKER_IMAGE}:${DOCKER_TAG}'
-                // Add deployment steps for production environment
+                script {
+                    // Run Codacy analysis
+                    sh 'curl -fsSL https://coverage.codacy.com/get.sh | bash -s -- report -r coverage.xml'
+                }
             }
         }
     }
-
+    
     post {
         always {
+            // Clean up
             cleanWs()
         }
         success {
-            echo 'Pipeline completed successfully'
+            echo 'Pipeline completed successfully!'
         }
         failure {
-            echo 'Pipeline failed'
+            echo 'Pipeline failed!'
         }
     }
 } 
