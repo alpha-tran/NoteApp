@@ -19,20 +19,32 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main', url: 'https://github.com/alpha-tran/NoteApp.git'
+                script {
+                    // Ensure correct line endings on Windows
+                    if (IS_WINDOWS == 'true') {
+                        bat 'git config --global core.autocrlf true'
+                    }
+                }
             }
         }
         
         stage('Setup Python Environment') {
             steps {
                 script {
-                    if (IS_WINDOWS == 'true') {
-                        bat 'python -V'
-                        bat 'python -m venv venv'
-                        bat '.\\venv\\Scripts\\activate && python -m pip install --upgrade pip'
-                    } else {
-                        sh 'python3 -V'
-                        sh 'python3 -m venv venv'
-                        sh 'source venv/bin/activate && pip3 install --upgrade pip'
+                    try {
+                        if (IS_WINDOWS == 'true') {
+                            bat 'python -V'
+                            bat 'if exist venv rmdir /s /q venv'
+                            bat 'python -m venv venv'
+                            bat '.\\venv\\Scripts\\activate && python -m pip install --upgrade pip setuptools wheel'
+                        } else {
+                            sh 'python3 -V'
+                            sh 'rm -rf venv'
+                            sh 'python3 -m venv venv'
+                            sh '. venv/bin/activate && pip3 install --upgrade pip setuptools wheel'
+                        }
+                    } catch (Exception e) {
+                        error "Failed to setup Python environment: ${e.getMessage()}"
                     }
                 }
             }
@@ -40,23 +52,27 @@ pipeline {
         
         stage('Build Backend') {
             steps {
-                dir('backend') {
-                    script {
-                        if (IS_WINDOWS == 'true') {
-                            bat '''
-                                call ..\\venv\\Scripts\\activate
-                                python -m pip install --upgrade pip
-                                pip install -r requirements.txt
-                                pip install pytest pytest-cov
-                            '''
-                        } else {
-                            sh '''
-                                source ../venv/bin/activate
-                                pip3 install --upgrade pip
-                                pip3 install -r requirements.txt
-                                pip3 install pytest pytest-cov
-                            '''
+                script {
+                    try {
+                        dir('backend') {
+                            if (IS_WINDOWS == 'true') {
+                                bat '''
+                                    call ..\\venv\\Scripts\\activate
+                                    echo "Installing dependencies..."
+                                    python -m pip install -r requirements.txt --no-cache-dir
+                                    python -m pip install pytest pytest-cov --no-cache-dir
+                                '''
+                            } else {
+                                sh '''
+                                    . ../venv/bin/activate
+                                    echo "Installing dependencies..."
+                                    pip3 install -r requirements.txt --no-cache-dir
+                                    pip3 install pytest pytest-cov --no-cache-dir
+                                '''
+                            }
                         }
+                    } catch (Exception e) {
+                        error "Failed to build backend: ${e.getMessage()}"
                     }
                 }
             }
@@ -64,15 +80,19 @@ pipeline {
         
         stage('Build Frontend') {
             steps {
-                dir('frontend') {
-                    script {
-                        if (IS_WINDOWS == 'true') {
-                            bat 'npm install'
-                            bat 'npm run build'
-                        } else {
-                            sh 'npm install'
-                            sh 'npm run build'
+                script {
+                    try {
+                        dir('frontend') {
+                            if (IS_WINDOWS == 'true') {
+                                bat 'npm install'
+                                bat 'npm run build'
+                            } else {
+                                sh 'npm install'
+                                sh 'npm run build'
+                            }
                         }
+                    } catch (Exception e) {
+                        error "Failed to build frontend: ${e.getMessage()}"
                     }
                 }
             }
@@ -80,19 +100,23 @@ pipeline {
         
         stage('Test Backend') {
             steps {
-                dir('backend') {
-                    script {
-                        if (IS_WINDOWS == 'true') {
-                            bat '''
-                                call ..\\venv\\Scripts\\activate
-                                python -m pytest tests/ --cov=app --cov-report=xml
-                            '''
-                        } else {
-                            sh '''
-                                source ../venv/bin/activate
-                                python -m pytest tests/ --cov=app --cov-report=xml
-                            '''
+                script {
+                    try {
+                        dir('backend') {
+                            if (IS_WINDOWS == 'true') {
+                                bat '''
+                                    call ..\\venv\\Scripts\\activate
+                                    python -m pytest tests/ --cov=app --cov-report=xml
+                                '''
+                            } else {
+                                sh '''
+                                    . ../venv/bin/activate
+                                    python -m pytest tests/ --cov=app --cov-report=xml
+                                '''
+                            }
                         }
+                    } catch (Exception e) {
+                        error "Failed to test backend: ${e.getMessage()}"
                     }
                 }
             }
@@ -100,13 +124,17 @@ pipeline {
         
         stage('Test Frontend') {
             steps {
-                dir('frontend') {
-                    script {
-                        if (IS_WINDOWS == 'true') {
-                            bat 'npm test -- --watchAll=false'
-                        } else {
-                            sh 'npm test -- --watchAll=false'
+                script {
+                    try {
+                        dir('frontend') {
+                            if (IS_WINDOWS == 'true') {
+                                bat 'npm test -- --watchAll=false'
+                            } else {
+                                sh 'npm test -- --watchAll=false'
+                            }
                         }
+                    } catch (Exception e) {
+                        error "Failed to test frontend: ${e.getMessage()}"
                     }
                 }
             }
@@ -115,12 +143,16 @@ pipeline {
         stage('Docker Build') {
             steps {
                 script {
-                    if (IS_WINDOWS == 'true') {
-                        bat "docker build -t ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER} ./frontend"
-                        bat "docker build -t ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER} ./backend"
-                    } else {
-                        sh "docker build -t ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER} ./frontend"
-                        sh "docker build -t ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER} ./backend"
+                    try {
+                        if (IS_WINDOWS == 'true') {
+                            bat "docker build -t ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER} ./frontend"
+                            bat "docker build -t ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER} ./backend"
+                        } else {
+                            sh "docker build -t ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER} ./frontend"
+                            sh "docker build -t ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER} ./backend"
+                        }
+                    } catch (Exception e) {
+                        error "Failed to build Docker images: ${e.getMessage()}"
                     }
                 }
             }
@@ -129,10 +161,14 @@ pipeline {
         stage('Deploy to K8s') {
             steps {
                 script {
-                    if (IS_WINDOWS == 'true') {
-                        bat 'kubectl apply -f k8s/'
-                    } else {
-                        sh 'kubectl apply -f k8s/'
+                    try {
+                        if (IS_WINDOWS == 'true') {
+                            bat 'kubectl apply -f k8s/'
+                        } else {
+                            sh 'kubectl apply -f k8s/'
+                        }
+                    } catch (Exception e) {
+                        error "Failed to deploy to K8s: ${e.getMessage()}"
                     }
                 }
             }
@@ -148,10 +184,15 @@ pipeline {
         }
         always {
             script {
-                if (IS_WINDOWS == 'true') {
-                    bat 'if exist venv rmdir /s /q venv'
-                } else {
-                    sh 'rm -rf venv'
+                // Cleanup
+                try {
+                    if (IS_WINDOWS == 'true') {
+                        bat 'if exist venv rmdir /s /q venv'
+                    } else {
+                        sh 'rm -rf venv'
+                    }
+                } catch (Exception e) {
+                    echo "Warning: Cleanup failed: ${e.getMessage()}"
                 }
             }
         }
