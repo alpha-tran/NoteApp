@@ -1,0 +1,96 @@
+stages:
+  - setup
+  - test
+  - security
+  - build
+  - deploy
+
+variables:
+  DOCKER_REGISTRY: ${CI_REGISTRY}
+  FRONTEND_IMAGE: ${CI_REGISTRY_IMAGE}/frontend:${CI_COMMIT_SHORT_SHA}
+  BACKEND_IMAGE: ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_SHORT_SHA}
+
+default:
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+  tags:
+    - docker
+
+# Setup Stage
+setup_backend:
+  stage: setup
+  image: python:3.9-slim
+  script:
+    - cd backend
+    - pip install -r requirements.txt
+  artifacts:
+    paths:
+      - backend/
+    expire_in: 1 hour
+
+setup_frontend:
+  stage: setup
+  image: node:16-alpine
+  script:
+    - cd frontend
+    - npm install
+  artifacts:
+    paths:
+      - frontend/
+    expire_in: 1 hour
+
+# Testing Stage
+test_backend:
+  stage: test
+  image: python:3.9-slim
+  dependencies:
+    - setup_backend
+  script:
+    - cd backend
+    - pip install pytest pytest-cov
+    - python -m pytest tests/ --cov=app --cov-report=xml
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: backend/coverage.xml
+
+test_frontend:
+  stage: test
+  image: node:16-alpine
+  dependencies:
+    - setup_frontend
+  script:
+    - cd frontend
+    - npm test
+
+# Security Stage
+codacy_security_scan:
+  stage: security
+  image: codacy/codacy-analysis-cli:latest
+  script:
+    - codacy-analysis-cli analyze --directory frontend/ --tool ESLint --verbose
+  allow_failure: true
+
+# Build Stage
+build_docker_images:
+  stage: build
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -t $FRONTEND_IMAGE ./frontend
+    - docker build -t $BACKEND_IMAGE ./backend
+    - docker push $FRONTEND_IMAGE
+    - docker push $BACKEND_IMAGE
+
+# Deploy Stage
+deploy_to_kubernetes:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context ${KUBE_CONTEXT}
+    - kubectl apply -f k8s/
+  environment:
+    name: production
+  only:
+    - main 

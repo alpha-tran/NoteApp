@@ -1,0 +1,9 @@
+coverage/
+.venv/
+node_modules/
+build/
+dist/
+*.config.js
+*.test.js
+__tests__/
+__mocks__/ 
