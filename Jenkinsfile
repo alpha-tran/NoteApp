@@ -44,15 +44,7 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                script {
-                    try {
-                        checkout scm
-                        // Ensure correct line endings on Windows
-                        bat 'git config --global core.autocrlf true'
-                    } catch (Exception e) {
-                        error "Checkout failed: ${e.getMessage()}"
-                    }
-                }
+                git branch: 'main', url: 'https://github.com/alpha-tran/NoteApp.git'
             }
         }
         
@@ -99,17 +91,17 @@ pipeline {
         stage('Build Backend') {
             steps {
                 script {
-                    try {
-                        dir('backend') {
-                            bat '''
-                                call ..\\venv\\Scripts\\activate
-                                echo "Installing dependencies..."
-                                python -m pip install -r requirements.txt --no-cache-dir
-                                python -m pip install pytest pytest-cov --no-cache-dir
-                            '''
-                        }
-                    } catch (Exception e) {
-                        error "Failed to build backend: ${e.getMessage()}"
+                    dir('backend') {
+                        bat '''
+                            IF NOT EXIST venv (
+                                python -m venv venv
+                            )
+                            call venv\\Scripts\\activate.bat
+                            echo "Installing dependencies..."
+                            python -m pip install --upgrade pip
+                            pip install -r requirements.txt --no-cache-dir
+                            pip install pytest pytest-cov --no-cache-dir
+                        '''
                     }
                 }
             }
@@ -117,17 +109,9 @@ pipeline {
         
         stage('Build Frontend') {
             steps {
-                script {
-                    try {
-                        dir('frontend') {
-                            bat '''
-                                call npm ci
-                                call npm run build
-                            '''
-                        }
-                    } catch (Exception e) {
-                        error "Failed to build frontend: ${e.getMessage()}"
-                    }
+                dir('frontend') {
+                    bat 'npm install'
+                    bat 'npm run build'
                 }
             }
         }
@@ -181,48 +165,17 @@ pipeline {
             }
         }
         
-        stage('Docker Build and Push') {
+        stage('Docker Build') {
             steps {
-                script {
-                    try {
-                        // Login to Docker registry
-                        withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                            bat "docker login ${DOCKER_REGISTRY} -u ${DOCKER_USER} -p ${DOCKER_PASS}"
-                        }
-                        
-                        // Build and push images
-                        bat """
-                            docker build -t ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER} --build-arg NODE_ENV=${NODE_ENV} ./frontend
-                            docker build -t ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER} --build-arg ENVIRONMENT=${ENVIRONMENT} ./backend
-                            docker push ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER}
-                            docker push ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER}
-                        """
-                    } catch (Exception e) {
-                        error "Docker build and push failed: ${e.getMessage()}"
-                    }
-                }
+                bat 'docker build -t alpha-tran/noteapp-backend:latest .\\backend'
+                bat 'docker build -t alpha-tran/noteapp-frontend:latest .\\frontend'
             }
         }
         
         stage('Deploy to K8s') {
             steps {
-                script {
-                    try {
-                        // Configure kubectl
-                        withKubeConfig([credentialsId: KUBECONFIG_CREDENTIALS_ID]) {
-                            // Update deployment manifests with new image tags
-                            bat """
-                                powershell -Command "(gc k8s/frontend-deployment.yaml) -replace 'image: .*frontend:.*', 'image: ${DOCKER_REGISTRY}/frontend:${BUILD_NUMBER}' | Set-Content k8s/frontend-deployment.yaml"
-                                powershell -Command "(gc k8s/backend-deployment.yaml) -replace 'image: .*backend:.*', 'image: ${DOCKER_REGISTRY}/backend:${BUILD_NUMBER}' | Set-Content k8s/backend-deployment.yaml"
-                                kubectl apply -f k8s/
-                                kubectl rollout status deployment/frontend
-                                kubectl rollout status deployment/backend
-                            """
-                        }
-                    } catch (Exception e) {
-                        error "Failed to deploy to K8s: ${e.getMessage()}"
-                    }
-                }
+                bat 'kubectl apply -f k8s\\backend-deployment.yaml'
+                bat 'kubectl apply -f k8s\\frontend-deployment.yaml'
             }
         }
     }
