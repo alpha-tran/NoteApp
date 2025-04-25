@@ -1,74 +1,96 @@
-from app.config import settings
 from datetime import datetime, timedelta
 from typing import Optional
-from jose import JWTError, jwt
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
-from app.database import get_db
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from app.config import settings
 from app.models.user import User
+from app.database import get_db
+from sqlalchemy.orm import Session
 
-# Centralized security settings from config
-SECRET_KEY = settings.JWT_SECRET_KEY
+# Remove SECRET_KEY from __all__ for security
+__all__ = [
+    'oauth2_scheme',
+    'pwd_context',
+    'verify_password',
+    'get_password_hash',
+    'create_access_token',
+    'get_current_user',
+]
 
-# Use algorithm and expiration from config
-ALGORITHM = settings.JWT_ALGORITHM
-ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+# Enhanced password context with explicit settings
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=12  # Explicit work factor
+)
 
-# Cấu hình mã hóa mật khẩu với bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Xác thực mật khẩu"""
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password: str) -> str:
-    """Tạo hash cho mật khẩu"""
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Tạo JWT token với thời gian hết hạn tùy chỉnh"""
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    # Add standard JWT claims
     to_encode.update({
         "exp": expire,
-        "iat": datetime.utcnow(),  # Thêm thời điểm phát hành
-        "type": "access"  # Thêm loại token
+        "iat": datetime.utcnow(),
+        "iss": "noteapp-api",
+        "aud": ["noteapp-client"]
     })
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    
+    return jwt.encode(
+        to_encode,
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM
+    )
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
-
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
-    """Xác thực và lấy thông tin người dùng từ token"""
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
     try:
-        # Thêm kiểm tra thời gian hết hạn
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        token_type: str = payload.get("type")
-        
-        if email is None or token_type != "access":
+        # Explicit verification of token expiration and claims
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM],
+            audience=["noteapp-client"],
+            issuer="noteapp-api"
+        )
+        username: str = payload.get("sub")
+        if username is None:
             raise credentials_exception
-            
-    except JWTError:
-        raise credentials_exception
         
-    user = db.query(User).filter(User.email == email).first()
+    except JWTError as e:
+        # More specific error handling
+        if "expired" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has expired",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        raise credentials_exception
+    
+    user = db.query(User).filter(User.email == username).first()
     if user is None:
+        # Generic error to prevent user enumeration
         raise credentials_exception
         
-    return user
-
-__all__ = ["SECRET_KEY", "ALGORITHM", "ACCESS_TOKEN_EXPIRE_MINUTES", 
-           "verify_password", "get_password_hash", "create_access_token", 
-           "get_current_user"] 
+    return user 
