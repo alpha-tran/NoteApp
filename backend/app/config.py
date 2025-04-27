@@ -2,6 +2,7 @@ from typing import List, Optional
 from pydantic_settings import BaseSettings
 import os
 from functools import lru_cache
+import secrets
 
 class Settings(BaseSettings):
     # Project settings
@@ -10,53 +11,79 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # Security settings
-    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "your-super-secret-key-here")
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY")  # No default value
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+    REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
     
-    # CORS settings
-    BACKEND_CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "http://localhost"
-    ]
+    # Password settings
+    PASSWORD_MIN_LENGTH: int = 12
+    PASSWORD_REQUIRE_UPPERCASE: bool = True
+    PASSWORD_REQUIRE_LOWERCASE: bool = True
+    PASSWORD_REQUIRE_DIGITS: bool = True
+    PASSWORD_REQUIRE_SPECIAL: bool = True
     
-    # Database settings
-    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
-    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "")
-    POSTGRES_SERVER: str = os.getenv("POSTGRES_SERVER", "localhost")
-    POSTGRES_PORT: str = os.getenv("POSTGRES_PORT", "5432")
-    POSTGRES_DB: str = os.getenv("POSTGRES_DB", "fastapi")
+    # Rate limiting
+    RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "100"))
     
-    # Construct Database URL
-    @property
-    def DATABASE_URL(self) -> str:
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+    # CORS settings - Default to empty list, must be set in environment
+    BACKEND_CORS_ORIGINS: List[str] = []
     
-    # Database connection settings
-    DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "5"))
-    DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
-    DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
-    DB_POOL_RECYCLE: int = int(os.getenv("DB_POOL_RECYCLE", "3600"))
-    DB_CONNECT_TIMEOUT: int = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
+    # Security headers
+    SECURITY_HEADERS: bool = True
+    HSTS_SECONDS: int = 31536000  # 1 year
+    FRAME_DENY: bool = True
+    XSS_PROTECTION: bool = True
+    CONTENT_TYPE_NOSNIFF: bool = True
     
-    # SSL Certificate paths for database
-    DB_SSL_CERT_PATH: Optional[str] = os.getenv("DB_SSL_CERT_PATH")
-    DB_SSL_KEY_PATH: Optional[str] = os.getenv("DB_SSL_KEY_PATH")
-    DB_SSL_ROOT_CERT_PATH: Optional[str] = os.getenv("DB_SSL_ROOT_CERT_PATH")
+    # MongoDB settings with connection pool and timeout
+    MONGODB_URI: str = os.getenv("MONGODB_URI")  # No default value
+    MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME")  # No default value
+    MONGODB_MAX_POOL_SIZE: int = int(os.getenv("MONGODB_MAX_POOL_SIZE", "100"))
+    MONGODB_MIN_POOL_SIZE: int = int(os.getenv("MONGODB_MIN_POOL_SIZE", "10"))
+    MONGODB_MAX_IDLE_TIME_MS: int = int(os.getenv("MONGODB_MAX_IDLE_TIME_MS", "10000"))
+    MONGODB_CONNECT_TIMEOUT_MS: int = int(os.getenv("MONGODB_CONNECT_TIMEOUT_MS", "2000"))
+    
+    # Session settings
+    SESSION_SECRET_KEY: str = os.getenv("SESSION_SECRET_KEY", secrets.token_urlsafe(32))
+    SESSION_EXPIRE_MINUTES: int = int(os.getenv("SESSION_EXPIRE_MINUTES", "60"))
     
     # Environment settings
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    
+    # SSL/TLS settings
+    SSL_KEYFILE: Optional[str] = os.getenv("SSL_KEYFILE")
+    SSL_CERTFILE: Optional[str] = os.getenv("SSL_CERTFILE")
+    FORCE_SSL: bool = os.getenv("FORCE_SSL", "False").lower() == "true"
     
     def is_development(self) -> bool:
         """Check if the environment is development"""
         return self.ENVIRONMENT.lower() == "development"
     
-    def validate_jwt_secret(self) -> None:
-        """Validate JWT secret key"""
-        if self.JWT_SECRET_KEY == "your-super-secret-key-here" and not self.is_development():
-            raise ValueError("JWT_SECRET_KEY must be changed in production")
+    def is_production(self) -> bool:
+        """Check if the environment is production"""
+        return self.ENVIRONMENT.lower() == "production"
+    
+    def validate_settings(self) -> None:
+        """Validate all required settings"""
+        if not self.JWT_SECRET_KEY:
+            raise ValueError("JWT_SECRET_KEY must be set")
+            
+        if not self.MONGODB_URI:
+            raise ValueError("MONGODB_URI must be set")
+            
+        if not self.MONGODB_DB_NAME:
+            raise ValueError("MONGODB_DB_NAME must be set")
+            
+        if self.is_production():
+            if not self.BACKEND_CORS_ORIGINS:
+                raise ValueError("BACKEND_CORS_ORIGINS must be set in production")
+            if not self.SSL_KEYFILE or not self.SSL_CERTFILE:
+                raise ValueError("SSL certificate and key must be set in production")
+            if self.DEBUG:
+                raise ValueError("DEBUG must be False in production")
     
     class Config:
         case_sensitive = True
@@ -66,8 +93,10 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     """
-    Get cached settings instance
+    Get cached settings instance and validate
     """
-    return Settings()
+    settings = Settings()
+    settings.validate_settings()
+    return settings
 
 settings = get_settings() 

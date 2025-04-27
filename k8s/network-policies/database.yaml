@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: database-policy
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: noteapp
+      component: mongodb
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: noteapp
+          component: backend
+    ports:
+    - protocol: TCP
+      port: 27017
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-policy
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: noteapp
+      component: postgres
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: noteapp
+          component: backend
+    ports:
+    - protocol: TCP
+      port: 5432 

@@ -23,14 +23,33 @@ spec:
         ports:
         - containerPort: 8000
         env:
-          - name: DATABASE_URL
-            value: "sqlite:////app/data/app.db" # Đường dẫn trong container
-          # Thêm các biến môi trường khác nếu cần (e.g., JWT_SECRET_KEY)
-          # - name: JWT_SECRET_KEY
-          #   valueFrom:
-          #     secretKeyRef:
-          #       name: backend-secrets
-          #       key: jwt-secret
+          # MongoDB Connection URI từ secret
+          - name: MONGODB_URI
+            valueFrom:
+              secretKeyRef:
+                name: mongodb-credentials
+                key: uri
+
+          - name: JWT_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: backend-secrets # Name of the K8s secret for app
+                key: jwt-secret      # Key within the secret
+          - name: ACCESS_TOKEN_EXPIRE_MINUTES # Keep this or move to ConfigMap
+            valueFrom:
+              configMapKeyRef:
+                name: backend-config
+                key: access-token-expire
+          - name: ENVIRONMENT # Keep this or move to ConfigMap
+            valueFrom:
+              configMapKeyRef:
+                name: backend-config
+                key: environment
+          - name: DEBUG # Keep this or move to ConfigMap
+            valueFrom:
+              configMapKeyRef:
+                name: backend-config
+                key: debug
         volumeMounts:
           - name: backend-db-volume
             mountPath: /app/data # Gắn volume vào thư mục chứa DB
@@ -45,4 +64,16 @@ spec:
           runAsNonRoot: true
           runAsUser: 1000 # Match user ID in Dockerfile
           allowPrivilegeEscalation: false
-          # readOnlyRootFilesystem: false # Cannot be true due to SQLite writing to /app/data 
+          # readOnlyRootFilesystem: false # Cannot be true due to SQLite writing to /app/data
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5 

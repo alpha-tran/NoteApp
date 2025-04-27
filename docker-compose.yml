@@ -1,98 +1,197 @@
-version: '3.8'
+version: "3.9"
 
 services:
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    image: noteapp-frontend:latest
+    container_name: noteapp-frontend
+    restart: unless-stopped
     ports:
-      - "80:80"
+      - "127.0.0.1:8080:80"
+    networks:
+      - app-network
     depends_on:
       backend:
         condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - app-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     security_opt:
       - no-new-privileges:true
-    mem_limit: 512m
-    cpus: 0.5
-    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     tmpfs:
       - /tmp
-      - /var/cache/nginx
+    volumes:
+      - nginx_cache:/var/cache/nginx
+      - nginx_run:/var/run
+    ulimits:
+      nproc: 1000
+      nofile:
+        soft: 20000
+        hard: 40000
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+    sysctls:
+      - net.ipv4.ip_unprivileged_port_start=0
+    user: "nginx"
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
-      - POSTGRES_SERVER=db
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=${POSTGRES_DB:-noteapp}
-    depends_on:
-      db:
-        condition: service_healthy
+    image: noteapp-backend:latest
+    container_name: noteapp-backend
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8000"
+    env_file:
+      - .env
     networks:
       - app-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     security_opt:
       - no-new-privileges:true
-    mem_limit: 512m
-    cpus: 0.5
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+    ulimits:
+      nproc: 1000
+      nofile:
+        soft: 20000
+        hard: 40000
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+    sysctls:
+      - net.ipv4.ip_unprivileged_port_start=0
+    user: "10001:10001"
 
-  db:
-    image: postgres:15-alpine
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+  mongodb:
+    image: mongo:6.0
+    container_name: noteapp-mongodb
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
-      - POSTGRES_DB=${POSTGRES_DB:-noteapp}
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD}
+      - MONGO_INITDB_DATABASE=${MONGODB_DB_NAME}
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
     networks:
       - app-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    mem_limit: 512m
-    cpus: 0.5
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/log/mongodb
+    ulimits:
+      nproc: 1000
+      nofile:
+        soft: 64000
+        hard: 64000
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+    sysctls:
+      - net.ipv4.ip_unprivileged_port_start=0
+    user: "999:999"
 
 networks:
   app-network:
     driver: bridge
+    internal: false
+    name: noteapp-network
+    driver_opts:
+      com.docker.network.bridge.name: br-noteapp
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/16
+          ip_range: 172.28.5.0/24
+          gateway: 172.28.5.254
 
 volumes:
-  postgres_data: 
+  mongodb_data:
+    name: noteapp-mongodb-data
+  nginx_cache:
+    name: noteapp-nginx-cache
+  nginx_run:
+    name: noteapp-nginx-run
+
+secrets:
+  mongo_root_username:
+    file: ./k8s/secrets/mongo_root_username.txt
+  mongo_root_password:
+    file: ./k8s/secrets/mongo_root_password.txt
+  jenkins_admin_username:
+    file: ./k8s/secrets/jenkins_admin_username.txt
+  jenkins_admin_password:
+    file: ./k8s/secrets/jenkins_admin_password.txt
+  mongodb_uri:
+    file: ./k8s/secrets/mongodb_uri.txt 

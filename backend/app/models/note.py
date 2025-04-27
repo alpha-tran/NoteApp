@@ -1,18 +1,35 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
-from app.database import Base
+from pydantic import BaseModel, Field
+from typing import Optional
+from datetime import datetime
+from .user import PydanticObjectId # Reuse ObjectId handler
 
+class NoteBase(BaseModel):
+    title: str = Field(..., max_length=255)
+    content: str
 
-class Note(Base):
-    __tablename__ = "notes"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
-    content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    
-    # Relationship
-    user = relationship("User", back_populates="notes") 
+class NoteCreate(NoteBase):
+    pass # Add any other fields needed on creation
+
+class NoteInDBBase(NoteBase):
+    id: PydanticObjectId = Field(default_factory=PydanticObjectId, alias="_id")
+    owner_id: PydanticObjectId # Store the owner's ObjectId
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        from_attributes = True
+        json_encoders = {datetime: lambda dt: dt.isoformat(), PydanticObjectId: str}
+        populate_by_name = True
+
+class Note(NoteInDBBase):
+    # Fields to return to the client
+    pass
+
+class NoteInDB(NoteInDBBase):
+    # Full object in DB
+    pass
+
+class NoteUpdate(BaseModel):
+    title: Optional[str] = Field(None, max_length=255)
+    content: Optional[str] = None
+    # updated_at will be set automatically in the update logic 

@@ -1,14 +1,40 @@
+# Optimized .gitlab-ci.yml
 stages:
+  - pre-commit
   - setup
   - test
-  - security
+  - security-scan
   - build
-  - deploy
+  - security-audit
+  - deploy-dev
+  - deploy-staging
+  - deploy-prod
+  - post-deploy
 
 variables:
   DOCKER_REGISTRY: ${CI_REGISTRY}
-  FRONTEND_IMAGE: ${CI_REGISTRY_IMAGE}/frontend:${CI_COMMIT_SHORT_SHA}
-  BACKEND_IMAGE: ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_SHORT_SHA}
+  FRONTEND_IMAGE: ${CI_REGISTRY_IMAGE}/frontend
+  BACKEND_IMAGE: ${CI_REGISTRY_IMAGE}/backend
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  SCAN_KUBERNETES_MANIFESTS: "true"
+  SECURE_LOG_LEVEL: "debug"
+
+include:
+  - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml
+  - template: Security/Container-Scanning.gitlab-ci.yml
+  - template: Security/Dependency-Scanning.gitlab-ci.yml
+  - template: Security/License-Scanning.gitlab-ci.yml
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+      variables:
+        VERSION: ${CI_COMMIT_TAG}
+    - if: $CI_COMMIT_BRANCH
+      variables:
+        VERSION: ${CI_COMMIT_SHORT_SHA}
 
 default:
   image: docker:24.0.7
@@ -16,22 +42,38 @@ default:
     - docker:24.0.7-dind
   tags:
     - docker
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
 
 cache:
+  key: ${CI_COMMIT_REF_SLUG}
   paths:
     - frontend/node_modules/
     - backend/.venv/
     - ~/.cache/pip
 
+# Pre-commit checks
+pre-commit:
+  stage: pre-commit
+  image: python:3.12-slim
+  script:
+    - pip install pre-commit
+    - pre-commit install
+    - pre-commit run --all-files
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
 # Setup Stage
 setup_backend:
   stage: setup
-  image: python:3.9-slim
-  before_script:
-    - python -m venv backend/.venv
-    - source backend/.venv/bin/activate
+  image: python:3.12-slim
   script:
+    - python -m venv backend/.venv
+    - . backend/.venv/bin/activate
+    - pip install --upgrade pip setuptools wheel
+    - pip install safety
     - cd backend
+    - safety check -r requirements.txt
     - pip install -r requirements.txt
   artifacts:
     paths:
@@ -40,66 +82,224 @@ setup_backend:
 
 setup_frontend:
   stage: setup
-  image: node:16-alpine
+  image: node:20-alpine
   script:
     - cd frontend
+    - npm audit
     - npm ci
   artifacts:
     paths:
       - frontend/
     expire_in: 1 hour
 
-# Testing Stage
+# Testing Stage with Security
 test_backend:
   stage: test
-  image: python:3.9-slim
-  dependencies:
-    - setup_backend
+  image: python:3.12-slim
+  needs: [setup_backend]
+  coverage: '/TOTAL.+ ([0-9]{1,3}%)/'
   script:
     - cd backend
-    - pip install pytest pytest-cov
-    - python -m pytest tests/ --cov=app --cov-report=xml
+    - . .venv/bin/activate
+    - pip install pytest pytest-cov pytest-asyncio bandit
+    - bandit -r . -f json -o bandit-report.json
+    - pytest tests/ --cov=app --cov-report=xml --cov-report=term
   artifacts:
     reports:
       coverage_report:
         coverage_format: cobertura
         path: backend/coverage.xml
+      sast: backend/bandit-report.json
+      junit: backend/junit.xml
 
 test_frontend:
   stage: test
-  image: node:16-alpine
-  dependencies:
-    - setup_frontend
+  image: node:20-alpine
+  needs: [setup_frontend]
   script:
     - cd frontend
-    - npm test
+    - npm audit
+    - npm run lint
+    - npm run test:coverage
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: frontend/coverage/cobertura-coverage.xml
+      junit: frontend/junit.xml
 
-# Security Stage
-codacy_security_scan:
-  stage: security
-  image: codacy/codacy-analysis-cli:latest
+# Security Scanning Stage
+security_scan:
+  stage: security-scan
+  parallel:
+    matrix:
+      - SCAN_TYPE: [sast, secret, dependency, container, iac]
   script:
-    - codacy-analysis-cli analyze --directory frontend/ --tool ESLint --verbose
-  allow_failure: true
+    - |
+      case $SCAN_TYPE in
+        sast)
+          codacy-analysis-cli analyze --directory . --tool ESLint
+          ;;
+        secret)
+          trivy fs --security-checks secret .
+          ;;
+        dependency)
+          trivy fs --scanners vuln .
+          ;;
+        container)
+          trivy image $FRONTEND_IMAGE:$VERSION
+          trivy image $BACKEND_IMAGE:$VERSION
+          ;;
+        iac)
+          trivy config --severity HIGH,CRITICAL ./k8s
+          ;;
+      esac
+  artifacts:
+    reports:
+      sast: gl-security-report.json
+  allow_failure: false
 
-# Build Stage
-build_docker_images:
+# Build Stage with Security
+.build_template: &build_definition
   stage: build
   script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build -t $FRONTEND_IMAGE ./frontend
-    - docker build -t $BACKEND_IMAGE ./backend
-    - docker push $FRONTEND_IMAGE
-    - docker push $BACKEND_IMAGE
+    - docker pull $IMAGE_NAME:latest || true
+    - trivy image --no-progress --exit-code 1 --severity HIGH,CRITICAL $IMAGE_NAME:latest || true
+    - docker build 
+      --cache-from $IMAGE_NAME:latest
+      --tag $IMAGE_NAME:$VERSION
+      --tag $IMAGE_NAME:latest
+      --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+      --build-arg VCS_REF=$CI_COMMIT_SHA
+      $BUILD_CONTEXT
+    - trivy image --no-progress --exit-code 1 --severity HIGH,CRITICAL $IMAGE_NAME:$VERSION
+    - docker push $IMAGE_NAME:$VERSION
+    - docker push $IMAGE_NAME:latest
 
-# Deploy Stage
-deploy_to_kubernetes:
-  stage: deploy
-  image: bitnami/kubectl:latest
+build_frontend:
+  <<: *build_definition
+  variables:
+    IMAGE_NAME: $FRONTEND_IMAGE
+    BUILD_CONTEXT: ./frontend
+
+build_backend:
+  <<: *build_definition
+  variables:
+    IMAGE_NAME: $BACKEND_IMAGE
+    BUILD_CONTEXT: ./backend
+
+# Security Audit Stage
+security_audit:
+  stage: security-audit
   script:
+    - trivy image --exit-code 0 --no-progress $FRONTEND_IMAGE:$VERSION
+    - trivy image --exit-code 0 --no-progress $BACKEND_IMAGE:$VERSION
+    - trivy k8s --report summary ./k8s
+  artifacts:
+    reports:
+      sast: gl-security-audit.json
+
+# Deploy Stages with Security
+.deploy_template: &deploy_definition
+  image: bitnami/kubectl:latest
+  before_script:
     - kubectl config use-context ${KUBE_CONTEXT}
-    - kubectl apply -f k8s/
+    - trivy k8s --report summary ./k8s/config/${ENV}
+  script:
+    - |
+      sed -i "s|IMAGE_TAG|${VERSION}|g" k8s/config/${ENV}/deployment.yaml
+    - kubectl apply -f k8s/config/${ENV}/
+    - kubectl rollout status deployment/frontend -n ${ENV}
+    - kubectl rollout status deployment/backend -n ${ENV}
+  after_script:
+    - kubectl get pods -n ${ENV}
+    - kubectl top pods -n ${ENV}
+
+deploy_dev:
+  <<: *deploy_definition
+  stage: deploy-dev
+  variables:
+    ENV: dev
+  environment:
+    name: development
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+deploy_staging:
+  <<: *deploy_definition
+  stage: deploy-staging
+  variables:
+    ENV: staging
+  environment:
+    name: staging
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+
+deploy_prod:
+  <<: *deploy_definition
+  stage: deploy-prod
+  variables:
+    ENV: prod
   environment:
     name: production
-  only:
-    - main 
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+  before_script:
+    - |
+      curl -X POST -H 'Content-type: application/json' \
+      --data "{\"text\":\"🚀 Deploying version ${VERSION} to production\nSecurity scan results: ${CI_PROJECT_URL}/-/security/dashboard\"}" \
+      ${SLACK_WEBHOOK_URL}
+
+# Post-deployment Security Checks
+post_deployment_scan:
+  stage: post-deploy
+  script:
+    - trivy k8s --report all --namespaces ${ENV}
+  rules:
+    - if: $CI_ENVIRONMENT_NAME
+  artifacts:
+    reports:
+      sast: gl-k8s-report.json
+
+# Monitoring
+.monitor_deployment: &monitoring
+  image: curlimages/curl
+  script:
+    - |
+      # Health check
+      curl -f ${APP_URL}/health
+      # Prometheus metrics
+      curl -f ${APP_URL}/metrics
+  rules:
+    - if: $CI_ENVIRONMENT_NAME
+
+monitor_dev:
+  <<: *monitoring
+  variables:
+    APP_URL: https://dev-api.example.com
+  environment:
+    name: development
+
+monitor_staging:
+  <<: *monitoring
+  variables:
+    APP_URL: https://staging-api.example.com
+  environment:
+    name: staging
+
+monitor_prod:
+  <<: *monitoring
+  variables:
+    APP_URL: https://api.example.com
+  environment:
+    name: production
+
+# Cleanup
+cleanup_job:
+  stage: .post
+  script:
+    - docker system prune -f
+  rules:
+    - when: always

@@ -1,43 +1,79 @@
 import React from 'react';
+import {
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Checkbox,
+  IconButton,
+  Typography,
+  Paper,
+  Box
+} from '@mui/material';
+import { Delete as DeleteIcon } from '@mui/icons-material';
 import { useTodoContext } from '../contexts/TodoContext';
 
 export const TodoList: React.FC = () => {
   const { todos, toggleTodo, deleteTodo } = useTodoContext();
 
   return (
-    <div className="space-y-4">
-      {todos.map((todo) => (
-        <div
-          key={todo.id}
-          className="flex items-center justify-between p-4 bg-white rounded-lg shadow"
+    <Box sx={{ width: '100%', maxWidth: 800, mx: 'auto', mt: 4 }}>
+      {todos.length > 0 ? (
+        <Paper elevation={2}>
+          <List>
+            {todos.map((todo) => (
+              <ListItem
+                key={todo.id}
+                secondaryAction={
+                  <IconButton edge="end" onClick={() => deleteTodo(todo.id)} color="error">
+                    <DeleteIcon />
+                  </IconButton>
+                }
+              >
+                <ListItemIcon>
+                  <Checkbox
+                    edge="start"
+                    checked={todo.completed}
+                    onChange={() => toggleTodo(todo.id)}
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  primary={
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        textDecoration: todo.completed ? 'line-through' : 'none',
+                        color: todo.completed ? 'text.secondary' : 'text.primary'
+                      }}
+                    >
+                      {todo.title}
+                    </Typography>
+                  }
+                  secondary={
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        color: todo.completed ? 'text.disabled' : 'text.secondary'
+                      }}
+                    >
+                      {todo.description}
+                    </Typography>
+                  }
+                />
+              </ListItem>
+            ))}
+          </List>
+        </Paper>
+      ) : (
+        <Typography
+          variant="body1"
+          color="text.secondary"
+          align="center"
+          sx={{ mt: 4 }}
         >
-          <div className="flex items-center space-x-4">
-            <input
-              type="checkbox"
-              checked={todo.completed}
-              onChange={() => toggleTodo(todo.id)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-            />
-            <div>
-              <h3 className={`text-lg font-medium ${todo.completed ? 'line-through text-gray-500' : 'text-gray-900'}`}>
-                {todo.title}
-              </h3>
-              <p className={`text-sm ${todo.completed ? 'text-gray-400' : 'text-gray-600'}`}>
-                {todo.description}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => deleteTodo(todo.id)}
-            className="p-2 text-red-600 hover:text-red-800"
-          >
-            Delete
-          </button>
-        </div>
-      ))}
-      {todos.length === 0 && (
-        <p className="text-center text-gray-500">No todos yet. Add one to get started!</p>
+          No todos yet. Add one to get started!
+        </Typography>
       )}
-    </div>
+    </Box>
   );
 }; 

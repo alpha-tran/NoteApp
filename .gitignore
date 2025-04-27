@@ -50,9 +50,6 @@ out/
 *.db
 *.sqlite3
 
-# Environment variables
-.env
-.env.*
 
 # Logs
 logs/

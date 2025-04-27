@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb-deployment
+  labels:
+    app: mongodb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo:6.0 # Or desired version
+        ports:
+        - containerPort: 27017
+        # MongoDB does not require authentication by default
+        # Add environment variables for user/password if needed
+        # env:
+        # - name: MONGO_INITDB_ROOT_USERNAME
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: mongodb-credentials
+        #       key: username
+        # - name: MONGO_INITDB_ROOT_PASSWORD
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: mongodb-credentials
+        #       key: password
+        volumeMounts:
+        - name: mongodb-data
+          mountPath: /data/db
+      volumes:
+      - name: mongodb-data
+        emptyDir: {} # For simple testing. Use PersistentVolumeClaim for production! 

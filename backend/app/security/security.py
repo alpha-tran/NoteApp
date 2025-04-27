@@ -5,9 +5,9 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from app.config import settings
-from app.models.user import User
-from app.database import get_db
-from sqlalchemy.orm import Session
+from app.models.user import UserInDB
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from app.database import get_mongo_db
 
 # Remove SECRET_KEY from __all__ for security
 __all__ = [
@@ -57,8 +57,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
-) -> User:
+    db: AsyncIOMotorDatabase = Depends(get_mongo_db)
+) -> UserInDB:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -78,6 +78,9 @@ async def get_current_user(
         if username is None:
             raise credentials_exception
         
+        # Query MongoDB instead of SQLAlchemy
+        user_data = await db["users"].find_one({"email": username})
+        
     except JWTError as e:
         # More specific error handling
         if "expired" in str(e):
@@ -88,9 +91,15 @@ async def get_current_user(
             )
         raise credentials_exception
     
-    user = db.query(User).filter(User.email == username).first()
-    if user is None:
+    if user_data is None:
         # Generic error to prevent user enumeration
         raise credentials_exception
+    
+    # Validate user data with Pydantic model
+    try:
+        user = UserInDB(**user_data)
+    except Exception:
+        # Handle potential validation errors if DB data doesn't match model
+        raise credentials_exception 
         
     return user 
