@@ -9,7 +9,7 @@ alembic>=1.11.1
 # Security
 python-jose[cryptography]>=3.4.0  # Updated for CVE-2024-33663
 passlib[bcrypt]>=1.7.4
-python-multipart>=0.0.7  # Updated for CVE-2024-24762
+python-multipart>=0.0.18  # Updated for CVE-2024-53981
 
 # Testing
 pytest>=7.4.0

@@ -1,110 +1,58 @@
 """
-Database configuration and session management with security best practices
+Database configuration for MongoDB using Motor.
 """
-from contextlib import contextmanager
-from typing import Generator
-from urllib.parse import urlparse
-
-from sqlalchemy import create_engine, event
-from sqlalchemy.engine import Engine
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import QueuePool
-
+import logging
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from app.config import settings
-from app.core.logger import logger
 
-SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
-parsed_url = urlparse(SQLALCHEMY_DATABASE_URL)
+logger = logging.getLogger(__name__)
 
-# Common engine arguments for security
-engine_args = {
-    "pool_size": settings.DB_POOL_SIZE,  # Number of connections to maintain
-    "max_overflow": settings.DB_MAX_OVERFLOW,  # Max number of connections to allow over pool_size
-    "pool_timeout": settings.DB_POOL_TIMEOUT,  # Seconds to wait before timing out on getting a connection
-    "pool_recycle": settings.DB_POOL_RECYCLE,  # Recycle connections after this many seconds
-    "pool_pre_ping": True,  # Enable connection health checks
-    "poolclass": QueuePool,  # Use QueuePool for connection pooling
-}
+class DataBase:
+    client: AsyncIOMotorClient | None = None
+    db: AsyncIOMotorDatabase | None = None
 
-if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        SQLALCHEMY_DATABASE_URL,
-        connect_args={
-            "check_same_thread": False,
-            "timeout": settings.DB_CONNECT_TIMEOUT
-        },
-        **engine_args
-    )
-else:
-    # For PostgreSQL/MySQL, add SSL and other security settings
-    connect_args = {
-        "connect_timeout": settings.DB_CONNECT_TIMEOUT,
-        "application_name": settings.PROJECT_NAME,  # Identify application in database logs
-    }
-    
-    # Add SSL configuration for production
-    if not settings.is_development():
-        connect_args.update({
-            "sslmode": "verify-full",
-            "sslcert": settings.DB_SSL_CERT_PATH,
-            "sslkey": settings.DB_SSL_KEY_PATH,
-            "sslrootcert": settings.DB_SSL_ROOT_CERT_PATH,
-        })
-    
-    engine = create_engine(
-        SQLALCHEMY_DATABASE_URL,
-        connect_args=connect_args,
-        **engine_args
-    )
+db = DataBase()
 
-# Create session factory with security settings
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
-    expire_on_commit=False  # Prevent expired object access issues
-)
-
-Base = declarative_base()
-
-@contextmanager
-def get_db() -> Generator[Session, None, None]:
+async def connect_to_mongo():
     """
-    Database session context manager with enhanced error handling and logging
+    Connects to the MongoDB database.
     """
-    db = SessionLocal()
+    logger.info("Connecting to MongoDB...")
     try:
-        yield db
-    except SQLAlchemyError as e:
-        db.rollback()
-        logger.error(f"Database error occurred: {str(e)}")
+        db.client = AsyncIOMotorClient(settings.MONGODB_URI)
+        db.db = db.client[settings.MONGODB_DB_NAME]
+        # Ping the server to verify connection
+        await db.client.admin.command('ping')
+        logger.info(f"Successfully connected to MongoDB database: {settings.MONGODB_DB_NAME}")
+    except Exception as e:
+        logger.error(f"Failed to connect to MongoDB: {e}")
         raise
-    finally:
-        db.close()
 
-def validate_db_connection() -> bool:
+async def close_mongo_connection():
     """
-    Validate database connection on startup
+    Closes the MongoDB database connection.
     """
-    try:
-        with get_db() as db:
-            db.execute("SELECT 1")
-        return True
-    except SQLAlchemyError as e:
-        logger.error(f"Database connection validation failed: {str(e)}")
-        return False
+    if db.client:
+        logger.info("Closing MongoDB connection...")
+        db.client.close()
+        logger.info("MongoDB connection closed.")
 
-# Add event listeners for connection pool monitoring
-@event.listens_for(Engine, "connect")
-def receive_connect(dbapi_connection, connection_record):
-    logger.debug("Database connection established")
+def get_mongo_db() -> AsyncIOMotorDatabase:
+    """
+    Returns the MongoDB database instance.
+    Requires connect_to_mongo() to be called first.
+    """
+    if db.db is None:
+        # This scenario should ideally not happen if connect_to_mongo is called at startup
+        logger.error("Database not initialized. Call connect_to_mongo first.")
+        raise RuntimeError("Database not initialized")
+    return db.db
 
-@event.listens_for(Engine, "disconnect")
-def receive_disconnect(dbapi_connection, connection_record):
-    logger.debug("Database connection closed")
-
-@event.listens_for(Engine, "checkout")
-def receive_checkout(dbapi_connection, connection_record, connection_proxy):
-    logger.debug("Database connection retrieved from pool") 
+# Example Usage in routes (dependency):
+# from app.database import get_mongo_db
+# from motor.motor_asyncio import AsyncIOMotorDatabase
+# 
+# @router.get("/")
+# async def read_items(db: AsyncIOMotorDatabase = Depends(get_mongo_db)):
+#     items = await db["your_collection"].find().to_list(100)
+#     return items

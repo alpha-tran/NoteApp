@@ -1,0 +1,7 @@
+﻿{
+  "auths": {
+    "https://index.docker.io/v1/": {
+      "auth": "YOUR_ACTUAL_DOCKER_HUB_AUTH_STRING"
+    }
+  }
+}
