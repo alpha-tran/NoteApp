@@ -42,6 +42,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ mode }) => {
                     username: formData.get('username') as string,
                     email: formData.get('email') as string,
                     password: password,
+                    confirmPassword: confirmPassword
                 });
             } else {
                 await login({

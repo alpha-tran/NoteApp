@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AuthState, LoginCredentials, RegisterData } from '../types';
+import { AuthState, LoginCredentials, RegisterData } from '../types/auth';
 import { authService } from '../services/api';
 
 interface AuthContextType extends AuthState {
@@ -71,18 +71,79 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const register = async (data: RegisterData) => {
+        setState(prev => ({
+            ...prev,
+            error: null,
+            isLoading: true
+        }));
+
         try {
-            await authService.register(data);
+            console.log('Starting registration process...');
+            
+            // Validate password match
+            if (data.password !== data.confirmPassword) {
+                throw new Error('Passwords do not match');
+            }
+
+            // Attempt registration
+            const user = await authService.register(data);
+            console.log('Registration successful, attempting automatic login...');
+            
+            try {
+                // Attempt automatic login
+                await login({ 
+                    username: data.username, // Changed from email to username
+                    password: data.password 
+                });
+                console.log('Automatic login successful');
+                
+                setState(prev => ({
+                    ...prev,
+                    error: null,
+                    isLoading: false
+                }));
+            } catch (loginError: any) {
+                console.error('Automatic login failed:', loginError);
+                
+                // More descriptive error message
+                const errorMessage = loginError.code === 'NETWORK_ERROR' 
+                    ? 'Network error during login. Please try logging in manually.'
+                    : 'Registration successful but automatic login failed. Please login manually.';
+                
+                setState(prev => ({
+                    ...prev,
+                    error: errorMessage,
+                    isLoading: false,
+                    user: null,
+                    token: null,
+                    isAuthenticated: false
+                }));
+            }
+        } catch (error: any) {
+            console.error('Registration error:', error);
+            
+            // Enhanced error message handling
+            let errorMessage = 'Registration failed';
+            
+            if (error.code === 'VALIDATION_ERROR') {
+                errorMessage = Object.values(error.details || {}).join(', ');
+            } else if (error.code === 'DUPLICATE_ERROR') {
+                errorMessage = 'An account with this email or username already exists';
+            } else if (error.code === 'NETWORK_ERROR') {
+                errorMessage = 'Network error. Please check your connection and try again';
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+            
             setState(prev => ({
                 ...prev,
-                error: null,
+                error: errorMessage,
+                isLoading: false,
+                user: null,
+                token: null,
+                isAuthenticated: false
             }));
-            await login({ username: data.email, password: data.password });
-        } catch (error) {
-            setState(prev => ({
-                ...prev,
-                error: 'Registration failed',
-            }));
+            
             throw error;
         }
     };

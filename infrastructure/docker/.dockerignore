@@ -1,0 +1,122 @@
+# Include any files or directories that you don't want to be copied to your
+# container here (e.g., local build artifacts, temporary files, etc.).
+#
+# For more help, visit the .dockerignore file reference guide at
+# https://docs.docker.com/engine/reference/builder/#dockerignore-file
+
+**/.DS_Store
+**/__pycache__
+**/.venv
+**/.classpath
+**/.dockerignore
+**/.env
+**/.git
+**/.gitignore
+**/.project
+**/.settings
+**/.toolstarget
+**/.vs
+**/.vscode
+**/*.*proj.user
+**/*.dbmdl
+**/*.jfm
+**/bin
+**/charts
+**/docker-compose*
+**/compose*
+**/Dockerfile*
+**/node_modules
+**/npm-debug.log
+**/obj
+**/secrets.dev.yaml
+**/values.dev.yaml
+LICENSE
+README.md
+# Các thư mục không cần thiết
+.venv/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+.vscode/
+.idea/
+.cursor/
+.DS_Store
+.dockerignore
+.env
+.project
+.settings
+.toolstarget
+.vs
+*.*proj.user
+*.dbmdl
+*.jfm
+node_modules/
+npm-debug.log
+bin/
+obj/
+charts/
+
+# Các thư mục dự án không liên quan
+frontend/
+jenkins_workspace/
+jenkins-docker/
+k8s/
+mongo-init/
+tmp/
+
+# Các file không cần thiết
+.gitignore
+.gitlab-ci.yml
+docker-compose*
+compose*
+agent.jar
+jenkins-cli.jar
+Jenkinsfile
+kubeconfig
+README.md
+LICENSE
+secrets.dev.yaml
+values.dev.yaml
+
+# Môi trường
+.env
+*.db
+
+# container here (e.g., local build artifacts, temporary files, etc.).
+#
+# For more help, visit the .dockerignore file reference guide at
+# https://docs.docker.com/engine/reference/builder/#dockerignore-file
+
+**/.DS_Store
+**/__pycache__
+**/.venv
+**/.classpath
+**/.env
+**/.git
+**/.gitignore
+**/.project
+**/.settings
+**/.toolstarget
+**/.vs
+**/.vscode
+**/*.*proj.user
+**/*.dbmdl
+**/*.jfm
+**/bin
+**/charts
+**/docker-compose*
+**/compose*
+**/Dockerfile*
+**/node_modules
+**/npm-debug.log
+**/obj
+**/secrets.dev.yaml
+**/values.dev.yaml
+LICENSE
+README.md
+ 
