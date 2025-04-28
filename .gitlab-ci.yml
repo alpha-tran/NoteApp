@@ -38,7 +38,7 @@ include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
   - template: Jobs/Container-Scanning.gitlab-ci.yml
   - template: Jobs/Dependency-Scanning.gitlab-ci.yml
-  - template: Security/License-Management.gitlab-ci.yml
+  - template: Jobs/License-Scanning.gitlab-ci.yml
 
 workflow:
   rules:
